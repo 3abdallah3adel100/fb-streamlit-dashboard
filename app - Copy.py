@@ -23,17 +23,11 @@ FACT_FILE = DATA_DIR / "fact_snapshot.parquet"
 ACCOUNTS_FILE = DATA_DIR / "accounts_snapshot.parquet"
 RAW_ACCOUNTS_FILE = DATA_DIR / "raw_accounts_snapshot.parquet"
 META_FILE = DATA_DIR / "meta_snapshot.json"
-GENDER_FILE = DATA_DIR / "gender_snapshot.parquet"
-AGE_FILE = DATA_DIR / "age_snapshot.parquet"
-BALANCE_FILE = DATA_DIR / "balance_snapshot.parquet"
 
 TMP_FACT_FILE = DATA_DIR / "fact_snapshot.tmp.parquet"
 TMP_ACCOUNTS_FILE = DATA_DIR / "accounts_snapshot.tmp.parquet"
 TMP_RAW_ACCOUNTS_FILE = DATA_DIR / "raw_accounts_snapshot.tmp.parquet"
 TMP_META_FILE = DATA_DIR / "meta_snapshot.tmp.json"
-TMP_GENDER_FILE = DATA_DIR / "gender_snapshot.tmp.parquet"
-TMP_AGE_FILE = DATA_DIR / "age_snapshot.tmp.parquet"
-TMP_BALANCE_FILE = DATA_DIR / "balance_snapshot.tmp.parquet"
 
 MEDIA_BUYER_MAP = {
     "AA": "Abdallah Adel",
@@ -167,21 +161,10 @@ def format_display_df(df):
 def snapshot_exists():
     return FACT_FILE.exists() and META_FILE.exists()
 
-def save_snapshot_atomic(fact, accounts_dedup, accounts_raw, meta, gender_df=None, age_df=None, balance_df=None):
+def save_snapshot_atomic(fact, accounts_dedup, accounts_raw, meta):
     fact.to_parquet(TMP_FACT_FILE, index=False)
     accounts_dedup.to_parquet(TMP_ACCOUNTS_FILE, index=False)
     accounts_raw.to_parquet(TMP_RAW_ACCOUNTS_FILE, index=False)
-
-    if gender_df is None:
-        gender_df = pd.DataFrame()
-    if age_df is None:
-        age_df = pd.DataFrame()
-    if balance_df is None:
-        balance_df = pd.DataFrame()
-
-    gender_df.to_parquet(TMP_GENDER_FILE, index=False)
-    age_df.to_parquet(TMP_AGE_FILE, index=False)
-    balance_df.to_parquet(TMP_BALANCE_FILE, index=False)
 
     with open(TMP_META_FILE, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
@@ -189,9 +172,6 @@ def save_snapshot_atomic(fact, accounts_dedup, accounts_raw, meta, gender_df=Non
     os.replace(TMP_FACT_FILE, FACT_FILE)
     os.replace(TMP_ACCOUNTS_FILE, ACCOUNTS_FILE)
     os.replace(TMP_RAW_ACCOUNTS_FILE, RAW_ACCOUNTS_FILE)
-    os.replace(TMP_GENDER_FILE, GENDER_FILE)
-    os.replace(TMP_AGE_FILE, AGE_FILE)
-    os.replace(TMP_BALANCE_FILE, BALANCE_FILE)
     os.replace(TMP_META_FILE, META_FILE)
 
 def load_snapshot():
@@ -201,9 +181,6 @@ def load_snapshot():
     fact = pd.read_parquet(FACT_FILE)
     accounts_dedup = pd.read_parquet(ACCOUNTS_FILE)
     accounts_raw = pd.read_parquet(RAW_ACCOUNTS_FILE)
-    gender_df = pd.read_parquet(GENDER_FILE) if GENDER_FILE.exists() else pd.DataFrame()
-    age_df = pd.read_parquet(AGE_FILE) if AGE_FILE.exists() else pd.DataFrame()
-    balance_df = pd.read_parquet(BALANCE_FILE) if BALANCE_FILE.exists() else pd.DataFrame()
 
     with open(META_FILE, "r", encoding="utf-8") as f:
         meta = json.load(f)
@@ -212,9 +189,6 @@ def load_snapshot():
         "fact": fact,
         "accounts_dedup": accounts_dedup,
         "accounts_raw": accounts_raw,
-        "gender_df": gender_df,
-        "age_df": age_df,
-        "balance_df": balance_df,
         "meta": meta,
     }
 
@@ -255,7 +229,7 @@ def get_ad_accounts():
     for source_name, url in sources:
         try:
             params = {
-                "fields": "id,account_id,name,account_status,currency,funding_source_details",
+                "fields": "id,account_id,name,account_status,currency",
                 "access_token": ACCESS_TOKEN,
                 "limit": 500,
             }
@@ -329,163 +303,17 @@ def get_insights_for_account(account_id, since, until):
 
     return df
 
-@st.cache_data(ttl=1800)
-def get_gender_spend(account_id, since, until):
-    clean_id = str(account_id).replace("act_", "")
-    url = f"{BASE_URL}/{API_VERSION}/act_{clean_id}/insights"
-    params = {
-        "fields": "spend",
-        "breakdowns": "gender",
-        "time_range": f'{{"since":"{since}","until":"{until}"}}',
-        "access_token": ACCESS_TOKEN,
-        "limit": 1000,
-    }
-
-    rows = fetch_all_pages(url, params)
-    df = pd.DataFrame(rows)
-
-    if not df.empty:
-        df["account_id"] = f"act_{clean_id}"
-
-    if "spend" not in df.columns:
-        df["spend"] = 0
-    if "gender" not in df.columns:
-        df["gender"] = "unknown"
-
-    return df
-
-@st.cache_data(ttl=1800)
-def get_age_spend(account_id, since, until):
-    clean_id = str(account_id).replace("act_", "")
-    url = f"{BASE_URL}/{API_VERSION}/act_{clean_id}/insights"
-    params = {
-        "fields": "spend",
-        "breakdowns": "age",
-        "time_range": f'{{"since":"{since}","until":"{until}"}}',
-        "access_token": ACCESS_TOKEN,
-        "limit": 1000,
-    }
-
-    rows = fetch_all_pages(url, params)
-    df = pd.DataFrame(rows)
-
-    if not df.empty:
-        df["account_id"] = f"act_{clean_id}"
-
-    if "spend" not in df.columns:
-        df["spend"] = 0
-    if "age" not in df.columns:
-        df["age"] = "unknown"
-
-    return df
-
-@st.cache_data(ttl=1800)
-def get_age_gender_spend(account_id, since, until):
-    clean_id = str(account_id).replace("act_", "")
-    url = f"{BASE_URL}/{API_VERSION}/act_{clean_id}/insights"
-    params = {
-        "fields": "spend",
-        "breakdowns": "age,gender",
-        "time_range": f'{{"since":"{since}","until":"{until}"}}',
-        "access_token": ACCESS_TOKEN,
-        "limit": 1000,
-    }
-
-    rows = fetch_all_pages(url, params)
-    df = pd.DataFrame(rows)
-
-    if not df.empty:
-        df["account_id"] = f"act_{clean_id}"
-
-    if "spend" not in df.columns:
-        df["spend"] = 0
-    if "gender" not in df.columns:
-        df["gender"] = "unknown"
-    if "age" not in df.columns:
-        df["age"] = "unknown"
-
-    return df
-
-def split_age_gender_breakdown(age_gender_df):
-    if age_gender_df.empty:
-        return pd.DataFrame(), pd.DataFrame()
-
-    df = age_gender_df.copy()
-    df["spend"] = pd.to_numeric(df["spend"], errors="coerce").fillna(0)
-
-    gender_df = (
-        df.groupby(["account_id", "gender"], dropna=False)
-        .agg(spend=("spend", "sum"))
-        .reset_index()
-    )
-
-    age_df = (
-        df.groupby(["account_id", "age"], dropna=False)
-        .agg(spend=("spend", "sum"))
-        .reset_index()
-    )
-
-    return gender_df, age_df
-
-def parse_balance_from_display_string(display_string):
-    if not display_string:
-        return None
-
-    match = re.search(r"([\d,.]+)", str(display_string))
-    if not match:
-        return None
-
-    return to_float(match.group(1).replace(",", ""), default=None)
-
-@st.cache_data(ttl=1800)
-def get_account_balance(account_id):
-    clean_id = str(account_id).replace("act_", "")
-    url = f"{BASE_URL}/{API_VERSION}/act_{clean_id}"
-    params = {
-        "fields": "name,funding_source_details",
-        "access_token": ACCESS_TOKEN,
-    }
-
-    response = requests.get(url, params=params, timeout=90)
-    response.raise_for_status()
-    data = response.json()
-
-    display_string = None
-    if isinstance(data.get("funding_source_details"), dict):
-        display_string = data["funding_source_details"].get("display_string")
-
-    balance = parse_balance_from_display_string(display_string)
-
-    return {
-        "account_id": f"act_{clean_id}",
-        "account_name": data.get("name", "Unknown"),
-        "balance": balance,
-        "balance_display_string": display_string or "N/A",
-    }
-
 def fetch_one_account(row, since, until):
     account_id = row["id"]
     account_name = row.get("name", account_id)
 
     campaigns_df = pd.DataFrame()
     insights_df = pd.DataFrame()
-    gender_df = pd.DataFrame()
-    age_df = pd.DataFrame()
-    balance_row = {}
     error = None
 
     try:
         campaigns_df = get_campaigns(account_id)
         insights_df = get_insights_for_account(account_id, str(since), str(until))
-
-        try:
-            age_gender_df = get_age_gender_spend(account_id, str(since), str(until))
-            gender_df, age_df = split_age_gender_breakdown(age_gender_df)
-        except Exception:
-            gender_df = get_gender_spend(account_id, str(since), str(until))
-            age_df = get_age_spend(account_id, str(since), str(until))
-
-        balance_row = {}
     except Exception as e:
         error = f"{account_name}: {e}"
 
@@ -494,9 +322,6 @@ def fetch_one_account(row, since, until):
         "account_name": account_name,
         "campaigns_df": campaigns_df,
         "insights_df": insights_df,
-        "gender_df": gender_df,
-        "age_df": age_df,
-        "balance_row": balance_row,
         "error": error,
     }
 
@@ -656,144 +481,6 @@ def build_account_sources_table(raw_accounts):
     )
     return out
 
-def enrich_breakdown_spend(df, accounts_dedup, breakdown_col):
-    if df.empty:
-        return pd.DataFrame()
-
-    out = df.copy()
-
-    if "account_id" not in out.columns:
-        return pd.DataFrame()
-
-    if breakdown_col not in out.columns:
-        out[breakdown_col] = "unknown"
-
-    if "spend" in out.columns:
-        out["spend"] = pd.to_numeric(out["spend"], errors="coerce").fillna(0)
-    else:
-        out["spend"] = 0
-
-    account_map = accounts_dedup[["id", "name"]].drop_duplicates().rename(
-        columns={"id": "account_id", "name": "account_name"}
-    )
-
-    out = out.merge(account_map, on="account_id", how="left")
-    out["account_name"] = out["account_name"].fillna("Unknown")
-    out["buyer_code"] = out["account_name"].apply(extract_buyer_code)
-    out["media_buyer"] = out["buyer_code"].map(MEDIA_BUYER_MAP).fillna("Unknown")
-
-    return out
-
-def build_breakdown_by_account(df, breakdown_col):
-    if df.empty:
-        return pd.DataFrame()
-
-    return (
-        df.groupby(["account_id", "account_name", "media_buyer", breakdown_col], dropna=False)
-        .agg(spend=("spend", "sum"))
-        .reset_index()
-        .sort_values(["account_name", "spend"], ascending=[True, False])
-        .reset_index(drop=True)
-    )
-
-def build_breakdown_by_buyer(df, breakdown_col):
-    if df.empty:
-        return pd.DataFrame()
-
-    return (
-        df.groupby(["media_buyer", breakdown_col], dropna=False)
-        .agg(spend=("spend", "sum"))
-        .reset_index()
-        .sort_values(["media_buyer", "spend"], ascending=[True, False])
-        .reset_index(drop=True)
-    )
-
-def _empty_audience_columns(level="account"):
-    if level == "account":
-        return [
-            "Ad Account", "Ad Account Name", "Media Buyer", "Balance",
-            "Male Spend (This Month)", "Female Spend (This Month)",
-            "18-24 Spend", "25-34 Spend", "35-44 Spend", "45-54 Spend", "55-64 Spend", "65+ Spend",
-        ]
-    return [
-        "Media Buyer", "Balance",
-        "Male Spend (This Month)", "Female Spend (This Month)",
-        "18-24 Spend", "25-34 Spend", "35-44 Spend", "45-54 Spend", "55-64 Spend", "65+ Spend",
-    ]
-
-def build_audience_table_by_account(gender_df, age_df, balance_df):
-    age_cols = ["18-24", "25-34", "35-44", "45-54", "55-64", "65+"]
-
-    frames = []
-    for df in [gender_df, age_df]:
-        if not df.empty and {"account_id", "account_name", "media_buyer"}.issubset(df.columns):
-            frames.append(df[["account_id", "account_name", "media_buyer"]].drop_duplicates())
-
-    if not balance_df.empty and {"account_id", "account_name", "media_buyer"}.issubset(balance_df.columns):
-        frames.append(balance_df[["account_id", "account_name", "media_buyer"]].drop_duplicates())
-
-    if not frames:
-        return pd.DataFrame(columns=_empty_audience_columns("account"))
-
-    base = pd.concat(frames, ignore_index=True).drop_duplicates(subset=["account_id"])
-
-    if not gender_df.empty:
-        g = gender_df.copy()
-        g["gender"] = g["gender"].astype(str).str.lower()
-        g = g.groupby(["account_id", "gender"], dropna=False)["spend"].sum().unstack(fill_value=0).reset_index()
-        g = g.rename(columns={"male": "Male Spend (This Month)", "female": "Female Spend (This Month)"})
-        base = base.merge(g, on="account_id", how="left")
-
-    if not age_df.empty:
-        a = age_df.copy()
-        a["age"] = a["age"].astype(str)
-        a = a.groupby(["account_id", "age"], dropna=False)["spend"].sum().unstack(fill_value=0).reset_index()
-        a = a.rename(columns={age: f"{age} Spend" for age in age_cols})
-        base = base.merge(a, on="account_id", how="left")
-
-    if not balance_df.empty and "balance" in balance_df.columns:
-        b = balance_df[["account_id", "balance"]].drop_duplicates(subset=["account_id"])
-        base = base.merge(b, on="account_id", how="left")
-    else:
-        base["balance"] = None
-
-    base = base.rename(columns={
-        "account_id": "Ad Account",
-        "account_name": "Ad Account Name",
-        "media_buyer": "Media Buyer",
-        "balance": "Balance",
-    })
-
-    for col in ["Male Spend (This Month)", "Female Spend (This Month)"] + [f"{age} Spend" for age in age_cols]:
-        if col not in base.columns:
-            base[col] = 0
-        base[col] = pd.to_numeric(base[col], errors="coerce").fillna(0).round(2)
-
-    if "Balance" in base.columns:
-        base["Balance"] = pd.to_numeric(base["Balance"], errors="coerce").round(2)
-
-    cols = _empty_audience_columns("account")
-    return base[cols].sort_values(["Media Buyer", "Ad Account Name"]).reset_index(drop=True)
-
-def build_audience_table_by_buyer(account_audience_df):
-    if account_audience_df.empty:
-        return pd.DataFrame(columns=_empty_audience_columns("buyer"))
-
-    value_cols = [
-        "Balance", "Male Spend (This Month)", "Female Spend (This Month)",
-        "18-24 Spend", "25-34 Spend", "35-44 Spend", "45-54 Spend", "55-64 Spend", "65+ Spend",
-    ]
-
-    out = account_audience_df.copy()
-    for col in value_cols:
-        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0)
-
-    out = out.groupby("Media Buyer", dropna=False)[value_cols].sum().reset_index()
-    for col in value_cols:
-        out[col] = out[col].round(2)
-
-    return out.sort_values("Media Buyer").reset_index(drop=True)
-
 # -----------------------------
 # Session init
 # -----------------------------
@@ -814,38 +501,9 @@ st.caption("Snapshot-based dashboard")
 
 with st.sidebar:
     st.header("Data Load")
-
-    quick_range = st.selectbox(
-        "Quick Range",
-        ["Custom", "Today", "Yesterday", "Last 7 Days", "This Month", "Last Month"]
-    )
-
-    today = pd.Timestamp.now(tz="Africa/Cairo").normalize().tz_localize(None).date()
-
-    if quick_range == "Today":
-        since = today
-        until = today
-    elif quick_range == "Yesterday":
-        since = (pd.Timestamp(today) - pd.Timedelta(days=1)).date()
-        until = since
-    elif quick_range == "Last 7 Days":
-        since = (pd.Timestamp(today) - pd.Timedelta(days=6)).date()
-        until = today
-    elif quick_range == "This Month":
-        since = pd.Timestamp(today).replace(day=1).date()
-        until = today
-    elif quick_range == "Last Month":
-        first_this_month = pd.Timestamp(today).replace(day=1)
-        last_month_end = first_this_month - pd.Timedelta(days=1)
-        since = last_month_end.replace(day=1).date()
-        until = last_month_end.date()
-    else:
-        since = st.date_input("From")
-        until = st.date_input("To")
-
-    st.caption(f"Selected range: {since} → {until}")
-
-    max_workers = st.slider("Parallel workers", min_value=2, max_value=12, value=6, step=2)
+    since = st.date_input("From")
+    until = st.date_input("To")
+    max_workers = st.slider("Parallel workers", min_value=4, max_value=24, value=12, step=2)
     show_account_sources = st.checkbox("Show account sources", value=True)
     refresh_clicked = st.button("Refresh Data", use_container_width=True)
 
@@ -861,9 +519,6 @@ if refresh_clicked:
 
         all_campaigns = []
         all_insights = []
-        all_gender = []
-        all_age = []
-        all_balances = []
         errors = []
 
         progress = st.progress(0)
@@ -888,57 +543,17 @@ if refresh_clicked:
                 if not result["insights_df"].empty:
                     all_insights.append(result["insights_df"])
 
-                if not result["gender_df"].empty:
-                    all_gender.append(result["gender_df"])
-
-                if not result["age_df"].empty:
-                    all_age.append(result["age_df"])
-
-                if result.get("balance_row"):
-                    all_balances.append(result["balance_row"])
-
                 done += 1
                 progress.progress(done / total)
 
         all_campaigns_df = pd.concat(all_campaigns, ignore_index=True) if all_campaigns else pd.DataFrame()
         all_insights_df = pd.concat(all_insights, ignore_index=True) if all_insights else pd.DataFrame()
-        gender_df = pd.concat(all_gender, ignore_index=True) if all_gender else pd.DataFrame()
-        age_df = pd.concat(all_age, ignore_index=True) if all_age else pd.DataFrame()
-        balance_rows = []
-        if not accounts_df.empty:
-            for _, acc in accounts_df.iterrows():
-                fsd = acc.get("funding_source_details")
-                display_string = None
-                if isinstance(fsd, dict):
-                    display_string = fsd.get("display_string")
-                balance_rows.append({
-                    "account_id": acc.get("id"),
-                    "account_name": acc.get("name", "Unknown"),
-                    "balance": parse_balance_from_display_string(display_string),
-                    "balance_display_string": display_string or "N/A",
-                })
-        balance_df = pd.DataFrame(balance_rows)
 
         fact = prepare_data(all_campaigns_df, all_insights_df)
 
         if fact.empty:
             st.error("Refresh finished but no data returned.")
             st.stop()
-
-        gender_df = enrich_breakdown_spend(gender_df, accounts_df, "gender")
-        age_df = enrich_breakdown_spend(age_df, accounts_df, "age")
-        if not balance_df.empty:
-            if "media_buyer" not in balance_df.columns:
-                account_map = accounts_df[["id", "name"]].drop_duplicates().rename(
-                    columns={"id": "account_id", "name": "account_name_from_map"}
-                )
-                balance_df = balance_df.merge(account_map, on="account_id", how="left")
-                balance_df["account_name"] = balance_df["account_name"].fillna(balance_df["account_name_from_map"]).fillna("Unknown")
-                balance_df = balance_df.drop(columns=["account_name_from_map"], errors="ignore")
-                balance_df["buyer_code"] = balance_df["account_name"].apply(extract_buyer_code)
-                balance_df["media_buyer"] = balance_df["buyer_code"].map(MEDIA_BUYER_MAP).fillna("Unknown")
-            if "balance" in balance_df.columns:
-                balance_df["balance"] = pd.to_numeric(balance_df["balance"], errors="coerce")
 
         meta = {
             "last_fetch_ts": pd.Timestamp.utcnow().isoformat(),
@@ -955,9 +570,6 @@ if refresh_clicked:
             accounts_dedup=accounts_df,
             accounts_raw=build_account_sources_table(raw_accounts_df),
             meta=meta,
-            gender_df=gender_df,
-            age_df=age_df,
-            balance_df=balance_df,
         )
 
         status.update(label="Refresh complete. New snapshot saved.", state="complete")
@@ -970,9 +582,6 @@ if not snapshot:
 fact = snapshot["fact"]
 accounts_dedup = snapshot["accounts_dedup"]
 accounts_raw = snapshot["accounts_raw"]
-gender_df = snapshot.get("gender_df", pd.DataFrame())
-age_df = snapshot.get("age_df", pd.DataFrame())
-balance_df = snapshot.get("balance_df", pd.DataFrame())
 meta = snapshot["meta"]
 
 overall = build_overall_summary(fact)
@@ -980,13 +589,6 @@ objective_summary = build_objective_summary(fact)
 buyer_summary = build_buyer_summary(fact)
 buyer_objective_summary = build_buyer_objective_summary(fact)
 campaign_summary = build_campaign_summary(fact)
-
-gender_by_account = build_breakdown_by_account(gender_df, "gender")
-gender_by_buyer = build_breakdown_by_buyer(gender_df, "gender")
-age_by_account = build_breakdown_by_account(age_df, "age")
-age_by_buyer = build_breakdown_by_buyer(age_df, "age")
-audience_by_account = build_audience_table_by_account(gender_df, age_df, balance_df)
-audience_by_buyer = build_audience_table_by_buyer(audience_by_account)
 
 st.caption(
     f"Last fetch: {meta.get('last_fetch_ts', '-')}"
@@ -1029,24 +631,6 @@ st.dataframe(
     use_container_width=True,
     hide_index=True
 )
-
-st.divider()
-
-st.subheader("Audience Spend & Balance")
-
-aud_tab1, aud_tab2 = st.tabs(["By Ad Account", "By Agent"])
-
-with aud_tab1:
-    if audience_by_account.empty:
-        st.info("No gender / age spend data in the saved snapshot.")
-    else:
-        st.dataframe(format_display_df(audience_by_account), use_container_width=True, hide_index=True)
-
-with aud_tab2:
-    if audience_by_buyer.empty:
-        st.info("No gender / age spend data by agent in the saved snapshot.")
-    else:
-        st.dataframe(format_display_df(audience_by_buyer), use_container_width=True, hide_index=True)
 
 st.divider()
 
